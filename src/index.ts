@@ -1,6 +1,6 @@
 import { convertSchemas } from './converter';
-import { formatModelsAsMarkdown } from './formatter';
-import { loadZodSchemas } from './loader';
+import { formatModelsAsMarkdown } from './formatter/format';
+import { loadZodSchemas } from './loader/loader';
 import type { Options } from './types';
 
 export async function zod2md(options: Options): Promise<string> {
