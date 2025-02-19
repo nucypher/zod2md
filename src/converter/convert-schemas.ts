@@ -4,6 +4,7 @@ import {
   ZodBigInt,
   ZodBoolean,
   ZodBranded,
+  ZodCatch,
   ZodDate,
   ZodDefault,
   ZodDiscriminatedUnion,
@@ -266,6 +267,12 @@ function convertSchema(
   ) {
     return convertSchema(
       (schema as ZodEffects<any>)._def.schema,
+      exportedSchemas
+    );
+  }
+  if (schema instanceof ZodCatch || schema.constructor.name === 'ZodCatch') {
+    return convertSchema(
+      (schema as ZodCatch<any>)._def.innerType,
       exportedSchemas
     );
   }
