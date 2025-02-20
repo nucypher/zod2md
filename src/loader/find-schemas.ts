@@ -9,7 +9,9 @@ export function findZodSchemas(modules: ImportedModules): ExportedSchema[] {
     }
     return Object.entries(mod)
       .filter(
-        (pair): pair is [string, ZodType<unknown>] => pair[1] instanceof ZodType
+        (pair): pair is [string, ZodType<unknown>] =>
+          pair[1] instanceof ZodType ||
+          pair[1].constructor?.name.indexOf('Zod') === 0
       )
       .map(
         ([name, schema]): ExportedSchema => ({
