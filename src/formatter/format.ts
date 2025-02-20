@@ -61,7 +61,7 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
       const hasDefault = model.fields.some(
         field => 'default' in metaFromModelOrRef(field)
       );
-      const hasDescription = model.fields.some(
+      const someFieldsHasDescription = model.fields.some(
         field => metaFromModelOrRef(field).description
       );
       return md.paragraphs(
@@ -73,7 +73,7 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
               field.required
                 ? `${md.bold(md.code.inline(field.key))} (\\*)`
                 : md.code.inline(field.key),
-              ...(hasDescription ? [meta.description ?? ''] : []),
+              ...(someFieldsHasDescription ? [meta.description ?? ''] : []),
               formatModelOrRef(field, transformName),
               ...(hasDefault
                 ? [
@@ -86,7 +86,7 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
           }),
           [
             'Property',
-            ...(hasDescription ? ['Description'] : []),
+            ...(someFieldsHasDescription ? ['Description'] : []),
             'Type',
             ...(hasDefault ? ['Default'] : []),
           ]
@@ -595,6 +595,11 @@ function isCode(markdown: string): boolean {
 }
 
 function stripCode(markdown: string): string {
+  if (!markdown) {
+    // it happens to have markdown as undefined. This seems only when processing ZodLazy.
+    // Could be more invistigated later or just kept as is.
+    return '';
+  }
   return markdown.replace(/`/g, '');
 }
 

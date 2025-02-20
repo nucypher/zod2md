@@ -11,6 +11,7 @@ import {
   ZodEnum,
   ZodFunction,
   ZodIntersection,
+  ZodLazy,
   ZodLiteral,
   ZodNativeEnum,
   ZodNever,
@@ -48,6 +49,7 @@ import type {
   ExportedSchema,
   FunctionModel,
   IntersectionModel,
+  LazyDeferredModel,
   LiteralModel,
   Model,
   ModelMeta,
@@ -71,15 +73,83 @@ import type {
   VoidModel,
 } from '../types';
 
+function resolveDeferred(schema: LazyDeferredModel): Model {
+  if (schema.deferred) {
+    let resolved = schema.deferred();
+    delete schema.deferred;
+    schema = { ...schema, ...resolved };
+  }
+
+  return schema as Model;
+}
+
+function processDeferredSchemas(
+  obj: (NamedModel | LazyDeferredModel) | (NamedModel | LazyDeferredModel)[],
+  deep = 2
+): NamedModel[] {
+  // Check if the input is an object and not null
+  if (typeof obj === 'object' && obj !== null) {
+    for (const property in obj) {
+      if (obj.hasOwnProperty(property)) {
+        // Check if the property belongs to the object itself
+
+        const value = (obj as { [key: string]: any })[property];
+
+        // Check if the value is an array
+        if (Array.isArray(value)) {
+          value.forEach((item: NamedModel | LazyDeferredModel, index) => {
+            // Check if the item is an object before recursion
+            if (item && typeof item === 'object') {
+              value[index] =
+                (item as LazyDeferredModel).deferred && deep > 0
+                  ? resolveDeferred(item as LazyDeferredModel)
+                  : item;
+
+              if (deep > 0) {
+                processDeferredSchemas(value[index], deep - 1);
+              }
+            }
+          });
+        }
+        // Check if the value is an object before recursion
+        else if (value && typeof value === 'object') {
+          (obj as { [key: string]: any })[property] =
+            ((obj as { [key: string]: any })[property] as LazyDeferredModel)
+              .deferred && deep > 0
+              ? resolveDeferred(value as LazyDeferredModel)
+              : value;
+
+          if (deep > 0) {
+            processDeferredSchemas(
+              (obj as { [key: string]: any })[property],
+              deep - 1
+            );
+          }
+        } else {
+          // the value is not an object/array
+        }
+      }
+    }
+  } else {
+    // it’s a primitive value
+  }
+  return obj as unknown as NamedModel[];
+}
+
 export function convertSchemas(
   exportedSchemas: ExportedSchema[]
 ): NamedModel[] {
-  return exportedSchemas.map(({ name, path, schema }) => ({
+  let schemas: (NamedModel | LazyDeferredModel)[] = exportedSchemas.map(
+    ({ name, path, schema }) => ({
       name,
       path,
       ...convertSchema(schema, exportedSchemas),
       ...schemaToMeta(schema),
-  }));
+    })
+  );
+
+  // to handle if there are any deferred schemas generated because of LazyZod
+  return processDeferredSchemas(schemas);
 }
 
 function createModelOrRef(
@@ -324,6 +394,13 @@ function convertSchema(
         (option: any) => createModelOrRef(option, exportedSchemas)
       ),
     };
+  }
+
+  if (schema instanceof ZodLazy || schema.constructor.name === 'ZodLazy') {
+    return {
+      deferred: () =>
+        convertSchema((schema as ZodLazy<any>)._def.getter(), exportedSchemas),
+    } as unknown as Model;
   }
 
   throw new Error(
