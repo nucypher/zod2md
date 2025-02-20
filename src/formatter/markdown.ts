@@ -1,10 +1,12 @@
 export const document = (text: string) => `${text.trim()}\n`;
 
-const lines = (...texts: (string | null | undefined | false)[]) =>
+export const lines = (...texts: (string | null | undefined | false)[]) =>
   texts
     .filter((text): text is string => !!text)
     .map(text => `${text}\n`)
     .join('');
+
+export const line = (text?: string) => `${text}\n`;
 
 export const paragraphs = (...texts: (string | null | undefined | false)[]) =>
   texts

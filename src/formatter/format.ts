@@ -314,6 +314,20 @@ function formatModelInline(
   model: Model,
   transformName: NameTransformFn
 ): string {
+  function formatModuleItem(
+    moduleItem: ModelOrRef,
+    willAllBeInOneLine: boolean
+  ): string {
+    const { description } = metaFromModelOrRef(moduleItem);
+    return (
+      formatModelOrRef(moduleItem, transformName) +
+      (description
+        ? willAllBeInOneLine
+          ? ' (Description: ' + description + ') '
+          : md.lines('Description: ' + description, ' ')
+        : '')
+    );
+  }
   switch (model.type) {
     case 'array':
       // TODO: un-duplicate
@@ -399,18 +413,24 @@ function formatModelInline(
         )
       );
     case 'union':
-      const formattedOptions = model.options.map(option =>
-        formatModelOrRef(option, transformName)
+      const allOptionsInOneLine = model.options
+        .map(option => formatModelOrRef(option, transformName))
+        .every(isCode);
+      const formattedOptions = model.options.map(moduleItem =>
+        formatModuleItem(moduleItem, allOptionsInOneLine)
       );
-      if (formattedOptions.every(isCode)) {
+      if (allOptionsInOneLine) {
         return md.code.inline(formattedOptions.map(stripCode).join(' | '));
       }
       return smartJoin(formattedOptions, md.italic('or'));
     case 'intersection':
-      const formattedParts = model.parts.map(part =>
-        formatModelOrRef(part, transformName)
+      const allPartsInOneLine = model.parts
+        .map(part => formatModelOrRef(part, transformName))
+        .every(isCode);
+      const formattedParts = model.parts.map(moduleItem =>
+        formatModuleItem(moduleItem, allPartsInOneLine)
       );
-      if (formattedParts.every(isCode)) {
+      if (allPartsInOneLine) {
         return md.code.inline(formattedParts.map(stripCode).join(' & '));
       }
       return smartJoin(formattedParts, md.italic('and'));
