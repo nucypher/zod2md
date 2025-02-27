@@ -62,7 +62,7 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
         field => 'default' in metaFromModelOrRef(field)
       );
       const someFieldsHasDescription = model.fields.some(
-        field => metaFromModelOrRef(field).description
+        field => metaFromModelOrRef(field).description && field.kind !== 'ref' // if it is a reference to an object, no need to render the description
       );
       return md.paragraphs(
         md.italic('Object containing the following properties:'),
@@ -318,13 +318,18 @@ function formatModelInline(
     moduleItem: ModelOrRef,
     willAllBeInOneLine: boolean
   ): string {
-    const { description } = metaFromModelOrRef(moduleItem);
+    if (moduleItem.kind === 'ref') {
+      // if it is a reference to an object, no need to render the description
+      return formatRefLink(moduleItem.ref, transformName);
+    }
+
+    const { description } = moduleItem.model;
     return (
       formatModelOrRef(moduleItem, transformName) +
       (description
         ? willAllBeInOneLine
           ? ' (Description: ' + description + ') '
-          : md.lines('Description: ' + description, ' ')
+          : md.lines(' Description: ' + description, ' ')
         : '')
     );
   }

@@ -499,6 +499,8 @@ function convertZodString(schema: ZodString): StringModel {
             case 'toUpperCase':
             case 'trim':
               return null;
+            default:
+              return null;
           }
         })
         .filter((value): value is StringValidation => value != null),
