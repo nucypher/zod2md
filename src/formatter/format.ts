@@ -50,7 +50,7 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
           ) + ' '
         : '';
       const isPlural =
-        model.validations?.every(([, value]) => value === 1) ?? true;
+        model.validations?.some(([, value]) => value > 1) ?? true;
       return md.italic(
         `Array of ${lengthPrefix}${formatModelOrRef(
           model.items,
@@ -352,7 +352,7 @@ function formatModelInline(
           ) + ' '
         : '';
       const isPlural =
-        model.validations?.every(([, value]) => value === 1) ?? true;
+        model.validations?.some(([, value]) => value > 1) ?? true;
 
       if (model.items.kind === 'ref') {
         return md.italic(
