@@ -43,6 +43,16 @@ export type Model = (
 ) &
   ModelMeta;
 
+/**
+ * The lazy model is used to defer the evaluation of a model till other modules has been processed.
+ * This is needed because the lazy model typically references some another models that is not yet defined.
+ * The deferred function should return the model that is being referenced.
+ * At some later processgin step, the deferred function will be called and the actual model will be used instead of the lazy model.
+ **/
+export type LazyDeferredModel = {
+  deferred?: () => Model;
+};
+
 export type Ref = {
   name?: string;
   path: string;

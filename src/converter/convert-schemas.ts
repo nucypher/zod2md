@@ -12,6 +12,7 @@ import {
   ZodEnum,
   ZodFunction,
   ZodIntersection,
+  ZodLazy,
   ZodLiteral,
   ZodNativeEnum,
   ZodNever,
@@ -49,6 +50,7 @@ import type {
   ExportedSchema,
   FunctionModel,
   IntersectionModel,
+  LazyDeferredModel,
   LiteralModel,
   Model,
   ModelMeta,
@@ -72,15 +74,83 @@ import type {
   VoidModel,
 } from '../types';
 
+function resolveDeferred(schema: LazyDeferredModel): Model {
+  if (schema.deferred) {
+    let resolved = schema.deferred();
+    delete schema.deferred;
+    schema = { ...schema, ...resolved };
+  }
+
+  return schema as Model;
+}
+
+function processDeferredSchemas(
+  obj: (NamedModel | LazyDeferredModel) | (NamedModel | LazyDeferredModel)[],
+  deep = 2
+): NamedModel[] {
+  // Check if the input is an object and not null
+  if (typeof obj === 'object' && obj !== null) {
+    for (const property in obj) {
+      if (obj.hasOwnProperty(property)) {
+        // Check if the property belongs to the object itself
+
+        const value = (obj as { [key: string]: any })[property];
+
+        // Check if the value is an array
+        if (Array.isArray(value)) {
+          value.forEach((item: NamedModel | LazyDeferredModel, index) => {
+            // Check if the item is an object before recursion
+            if (item && typeof item === 'object') {
+              value[index] =
+                (item as LazyDeferredModel).deferred && deep > 0
+                  ? resolveDeferred(item as LazyDeferredModel)
+                  : item;
+
+              if (deep > 0) {
+                processDeferredSchemas(value[index], deep - 1);
+              }
+            }
+          });
+        }
+        // Check if the value is an object before recursion
+        else if (value && typeof value === 'object') {
+          (obj as { [key: string]: any })[property] =
+            ((obj as { [key: string]: any })[property] as LazyDeferredModel)
+              .deferred && deep > 0
+              ? resolveDeferred(value as LazyDeferredModel)
+              : value;
+
+          if (deep > 0) {
+            processDeferredSchemas(
+              (obj as { [key: string]: any })[property],
+              deep - 1
+            );
+          }
+        } else {
+          // the value is not an object/array
+        }
+      }
+    }
+  } else {
+    // it’s a primitive value
+  }
+  return obj as unknown as NamedModel[];
+}
+
 export function convertSchemas(
   exportedSchemas: ExportedSchema[]
 ): NamedModel[] {
-  return exportedSchemas.map(({ name, path, schema }) => ({
-    name,
-    path,
-    ...convertSchema(schema, exportedSchemas),
-    ...schemaToMeta(schema),
-  }));
+  let schemas: (NamedModel | LazyDeferredModel)[] = exportedSchemas.map(
+    ({ name, path, schema }) => ({
+      name,
+      path,
+      ...convertSchema(schema, exportedSchemas),
+      ...schemaToMeta(schema),
+    })
+  );
+
+  // to handle if there are any deferred schemas generated because of LazyZod
+  return processDeferredSchemas(schemas);
 }
 
 function createModelOrRef(
@@ -149,113 +219,195 @@ function convertSchema(
   schema: ZodType<unknown>,
   exportedSchemas: ExportedSchema[]
 ): Model {
-  if (schema instanceof ZodOptional) {
-    return convertSchema(schema._def.innerType, exportedSchemas);
+  if (
+    schema instanceof ZodOptional ||
+    schema.constructor.name === 'ZodOptional'
+  ) {
+    return convertSchema(
+      (schema as ZodOptional<any>)._def.innerType,
+      exportedSchemas
+    );
   }
-  if (schema instanceof ZodNullable) {
-    return convertSchema(schema._def.innerType, exportedSchemas);
+  if (
+    schema instanceof ZodNullable ||
+    schema.constructor.name === 'ZodNullable'
+  ) {
+    return convertSchema(
+      (schema as ZodNullable<any>)._def.innerType,
+      exportedSchemas
+    );
   }
-  if (schema instanceof ZodDefault) {
+  if (
+    schema instanceof ZodDefault ||
+    schema.constructor.name === 'ZodDefault'
+  ) {
     return {
-      ...convertSchema(schema._def.innerType, exportedSchemas),
-      default: schema._def.defaultValue(),
+      ...convertSchema(
+        (schema as ZodDefault<any>)._def.innerType,
+        exportedSchemas
+      ),
+      default: (schema as ZodDefault<any>)._def.defaultValue(),
     };
   }
-  if (schema instanceof ZodReadonly) {
+  if (
+    schema instanceof ZodReadonly ||
+    schema.constructor.name === 'ZodReadonly'
+  ) {
     return {
-      ...convertSchema(schema._def.innerType, exportedSchemas),
+      ...convertSchema(
+        (schema as ZodReadonly<any>)._def.innerType,
+        exportedSchemas
+      ),
       readonly: true,
     };
   }
-  if (schema instanceof ZodEffects) {
-    return convertSchema(schema._def.schema, exportedSchemas);
+  if (
+    schema instanceof ZodEffects ||
+    schema.constructor.name === 'ZodEffects'
+  ) {
+    return convertSchema(
+      (schema as ZodEffects<any>)._def.schema,
+      exportedSchemas
+    );
   }
-  if (schema instanceof ZodCatch) {
-    return convertSchema(schema._def.innerType, exportedSchemas);
+  if (schema instanceof ZodCatch || schema.constructor.name === 'ZodCatch') {
+    return convertSchema(
+      (schema as ZodCatch<any>)._def.innerType,
+      exportedSchemas
+    );
   }
-  if (schema instanceof ZodBranded) {
-    return convertSchema(schema._def.type, exportedSchemas);
+  if (
+    schema instanceof ZodBranded ||
+    schema.constructor.name === 'ZodBranded'
+  ) {
+    return convertSchema(
+      (schema as ZodBranded<any, any>)._def.type,
+      exportedSchemas
+    );
   }
 
-  if (schema instanceof ZodArray) {
-    return convertZodArray(schema, exportedSchemas);
+  if (schema instanceof ZodArray || schema.constructor.name === 'ZodArray') {
+    return convertZodArray(schema as ZodArray<any>, exportedSchemas);
   }
-  if (schema instanceof ZodObject) {
-    return convertZodObject(schema, exportedSchemas);
+  if (schema instanceof ZodObject || schema.constructor.name === 'ZodObject') {
+    return convertZodObject(schema as AnyZodObject, exportedSchemas);
   }
-  if (schema instanceof ZodString) {
-    return convertZodString(schema);
+  if (schema instanceof ZodString || schema.constructor.name === 'ZodString') {
+    return convertZodString(schema as ZodString);
   }
-  if (schema instanceof ZodNumber) {
-    return convertZodNumber(schema);
+  if (schema instanceof ZodNumber || schema.constructor.name === 'ZodNumber') {
+    return convertZodNumber(schema as ZodNumber);
   }
-  if (schema instanceof ZodBoolean) {
-    return convertZodBoolean(schema);
+  if (
+    schema instanceof ZodBoolean ||
+    schema.constructor.name === 'ZodBoolean'
+  ) {
+    return convertZodBoolean(schema as ZodBoolean);
   }
-  if (schema instanceof ZodDate) {
-    return convertZodDate(schema);
+  if (schema instanceof ZodDate || schema.constructor.name === 'ZodDate') {
+    return convertZodDate(schema as ZodDate);
   }
-  if (schema instanceof ZodEnum) {
-    return convertZodEnum(schema);
+  if (schema instanceof ZodEnum || schema.constructor.name === 'ZodEnum') {
+    return convertZodEnum(schema as ZodEnum<any>);
   }
-  if (schema instanceof ZodNativeEnum) {
-    return convertZodNativeEnum(schema);
+  if (
+    schema instanceof ZodNativeEnum ||
+    schema.constructor.name === 'ZodNativeEnum'
+  ) {
+    return convertZodNativeEnum(schema as ZodNativeEnum<any>);
   }
-  if (schema instanceof ZodUnion) {
-    return convertZodUnion(schema, exportedSchemas);
+  if (schema instanceof ZodUnion || schema.constructor.name === 'ZodUnion') {
+    return convertZodUnion(schema as ZodUnion<any>, exportedSchemas);
   }
-  if (schema instanceof ZodIntersection) {
-    return convertZodIntersection(schema, exportedSchemas);
+  if (
+    schema instanceof ZodIntersection ||
+    schema.constructor.name === 'ZodIntersection'
+  ) {
+    return convertZodIntersection(
+      schema as ZodIntersection<any, any>,
+      exportedSchemas
+    );
   }
-  if (schema instanceof ZodRecord) {
-    return convertZodRecord(schema, exportedSchemas);
+  if (schema instanceof ZodRecord || schema.constructor.name === 'ZodRecord') {
+    return convertZodRecord(schema as ZodRecord<any, any>, exportedSchemas);
   }
-  if (schema instanceof ZodTuple) {
-    return convertZodTuple(schema, exportedSchemas);
+  if (schema instanceof ZodTuple || schema.constructor.name === 'ZodTuple') {
+    return convertZodTuple(schema as ZodTuple, exportedSchemas);
   }
-  if (schema instanceof ZodFunction) {
-    return convertZodFunction(schema, exportedSchemas);
+  if (
+    schema instanceof ZodFunction ||
+    schema.constructor.name === 'ZodFunction'
+  ) {
+    return convertZodFunction(schema as ZodFunction<any, any>, exportedSchemas);
   }
-  if (schema instanceof ZodPromise) {
-    return convertZodPromise(schema, exportedSchemas);
+  if (
+    schema instanceof ZodPromise ||
+    schema.constructor.name === 'ZodPromise'
+  ) {
+    return convertZodPromise(schema as ZodPromise<any>, exportedSchemas);
   }
-  if (schema instanceof ZodLiteral) {
-    return convertZodLiteral(schema);
+  if (
+    schema instanceof ZodLiteral ||
+    schema.constructor.name === 'ZodLiteral'
+  ) {
+    return convertZodLiteral(schema as ZodLiteral<any>);
   }
-  if (schema instanceof ZodNull) {
-    return convertZodNull(schema);
+  if (schema instanceof ZodNull || schema.constructor.name === 'ZodNull') {
+    return convertZodNull(schema as ZodNull);
   }
-  if (schema instanceof ZodUndefined) {
-    return convertZodUndefined(schema);
+  if (
+    schema instanceof ZodUndefined ||
+    schema.constructor.name === 'ZodUndefined'
+  ) {
+    return convertZodUndefined(schema as ZodUndefined);
   }
-  if (schema instanceof ZodSymbol) {
-    return convertZodSymbol(schema);
+  if (schema instanceof ZodSymbol || schema.constructor.name === 'ZodSymbol') {
+    return convertZodSymbol(schema as ZodSymbol);
   }
-  if (schema instanceof ZodBigInt) {
-    return convertZodBigInt(schema);
+  if (schema instanceof ZodBigInt || schema.constructor.name === 'ZodBigInt') {
+    return convertZodBigInt(schema as ZodBigInt);
   }
-  if (schema instanceof ZodUnknown) {
-    return convertZodUnknown(schema);
+  if (
+    schema instanceof ZodUnknown ||
+    schema.constructor.name === 'ZodUnknown'
+  ) {
+    return convertZodUnknown(schema as ZodUnknown);
   }
-  if (schema instanceof ZodAny) {
-    return convertZodAny(schema);
+  if (schema instanceof ZodAny || schema.constructor.name === 'ZodAny') {
+    return convertZodAny(schema as ZodAny);
   }
-  if (schema instanceof ZodVoid) {
-    return convertZodVoid(schema);
+  if (schema instanceof ZodVoid || schema.constructor.name === 'ZodVoid') {
+    return convertZodVoid(schema as ZodVoid);
   }
-  if (schema instanceof ZodNever) {
-    return convertZodNever(schema);
+  if (schema instanceof ZodNever || schema.constructor.name === 'ZodNever') {
+    return convertZodNever(schema as ZodNever);
   }
-  if (schema instanceof ZodPipeline) {
-    return convertSchema(schema._def.out, exportedSchemas);
+  if (
+    schema instanceof ZodPipeline ||
+    schema.constructor.name === 'ZodPipeline'
+  ) {
+    return convertSchema(
+      (schema as ZodPipeline<any, any>)._def.out,
+      exportedSchemas
+    );
   }
-  if (schema instanceof ZodDiscriminatedUnion) {
+  if (
+    schema instanceof ZodDiscriminatedUnion ||
+    schema.constructor.name === 'ZodDiscriminatedUnion'
+  ) {
     return {
       type: 'union',
-      options: schema._def.options.map((option: any) =>
-        createModelOrRef(option, exportedSchemas)
+      options: (schema as ZodDiscriminatedUnion<any, any>)._def.options.map(
+        (option: any) => createModelOrRef(option, exportedSchemas)
       ),
     };
+  }
+
+  if (schema instanceof ZodLazy || schema.constructor.name === 'ZodLazy') {
+    return {
+      deferred: () =>
+        convertSchema((schema as ZodLazy<any>)._def.getter(), exportedSchemas),
+    } as unknown as Model;
   }
 
   const typeName = 'typeName' in schema._def ? schema._def.typeName : null;
@@ -298,7 +450,11 @@ function convertZodObject(
   return {
     type: 'object',
     fields: Object.entries(schema._def.shape())
-      .filter((pair): pair is [string, ZodType] => pair[1] instanceof ZodType)
+      .filter(
+        (pair): pair is [string, ZodType] =>
+          pair[1] instanceof ZodType ||
+          pair[1]?.constructor?.name.indexOf('Zod') === 0
+      )
       .map(([key, value]) => ({
         key,
         required: !value.isOptional(),
@@ -342,6 +498,8 @@ function convertZodString(schema: ZodString): StringModel {
             case 'toLowerCase':
             case 'toUpperCase':
             case 'trim':
+              return null;
+            default:
               return null;
           }
         })

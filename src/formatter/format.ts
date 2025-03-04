@@ -50,7 +50,7 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
           ) + ' '
         : '';
       const isPlural =
-        model.validations?.every(([, value]) => value === 1) ?? true;
+        model.validations?.some(([, value]) => value > 1) ?? true;
       return md.italic(
         `Array of ${lengthPrefix}${formatModelOrRef(
           model.items,
@@ -61,8 +61,8 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
       const hasDefault = model.fields.some(
         field => 'default' in metaFromModelOrRef(field)
       );
-      const hasDescription = model.fields.some(
-        field => metaFromModelOrRef(field).description
+      const someFieldsHasDescription = model.fields.some(
+        field => metaFromModelOrRef(field).description && field.kind !== 'ref' // if it is a reference to an object, no need to render the description
       );
       return md.paragraphs(
         md.italic('Object containing the following properties:'),
@@ -73,7 +73,7 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
               field.required
                 ? `${md.bold(md.code.inline(field.key))} (\\*)`
                 : md.code.inline(field.key),
-              ...(hasDescription ? [meta.description ?? ''] : []),
+              ...(someFieldsHasDescription ? [meta.description ?? ''] : []),
               formatModelOrRef(field, transformName),
               ...(hasDefault
                 ? [
@@ -86,7 +86,7 @@ function formatModel(model: Model, transformName: NameTransformFn): string {
           }),
           [
             'Property',
-            ...(hasDescription ? ['Description'] : []),
+            ...(someFieldsHasDescription ? ['Description'] : []),
             'Type',
             ...(hasDefault ? ['Default'] : []),
           ]
@@ -314,6 +314,25 @@ function formatModelInline(
   model: Model,
   transformName: NameTransformFn
 ): string {
+  function formatModuleItem(
+    moduleItem: ModelOrRef,
+    willAllBeInOneLine: boolean
+  ): string {
+    if (moduleItem.kind === 'ref') {
+      // if it is a reference to an object, no need to render the description
+      return formatRefLink(moduleItem.ref, transformName);
+    }
+
+    const { description } = moduleItem.model;
+    return (
+      formatModelOrRef(moduleItem, transformName) +
+      (description
+        ? willAllBeInOneLine
+          ? ' (Description: ' + description + ') '
+          : md.lines(' Description: ' + description, ' ')
+        : '')
+    );
+  }
   switch (model.type) {
     case 'array':
       // TODO: un-duplicate
@@ -333,7 +352,7 @@ function formatModelInline(
           ) + ' '
         : '';
       const isPlural =
-        model.validations?.every(([, value]) => value === 1) ?? true;
+        model.validations?.some(([, value]) => value > 1) ?? true;
 
       if (model.items.kind === 'ref') {
         return md.italic(
@@ -399,18 +418,24 @@ function formatModelInline(
         )
       );
     case 'union':
-      const formattedOptions = model.options.map(option =>
-        formatModelOrRef(option, transformName)
+      const allOptionsInOneLine = model.options
+        .map(option => formatModelOrRef(option, transformName))
+        .every(isCode);
+      const formattedOptions = model.options.map(moduleItem =>
+        formatModuleItem(moduleItem, allOptionsInOneLine)
       );
-      if (formattedOptions.every(isCode)) {
+      if (allOptionsInOneLine) {
         return md.code.inline(formattedOptions.map(stripCode).join(' | '));
       }
       return smartJoin(formattedOptions, md.italic('or'));
     case 'intersection':
-      const formattedParts = model.parts.map(part =>
-        formatModelOrRef(part, transformName)
+      const allPartsInOneLine = model.parts
+        .map(part => formatModelOrRef(part, transformName))
+        .every(isCode);
+      const formattedParts = model.parts.map(moduleItem =>
+        formatModuleItem(moduleItem, allPartsInOneLine)
       );
-      if (formattedParts.every(isCode)) {
+      if (allPartsInOneLine) {
         return md.code.inline(formattedParts.map(stripCode).join(' & '));
       }
       return smartJoin(formattedParts, md.italic('and'));
@@ -595,6 +620,11 @@ function isCode(markdown: string): boolean {
 }
 
 function stripCode(markdown: string): string {
+  if (!markdown) {
+    // it happens to have markdown as undefined. This seems only when processing ZodLazy.
+    // Could be more invistigated later or just kept as is.
+    return '';
+  }
   return markdown.replace(/`/g, '');
 }
 
