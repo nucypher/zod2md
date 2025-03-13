@@ -86,7 +86,7 @@ function resolveDeferred(schema: LazyDeferredModel): Model {
 
 function processDeferredSchemas(
   obj: (NamedModel | LazyDeferredModel) | (NamedModel | LazyDeferredModel)[],
-  deep = 2
+  deep = 10
 ): NamedModel[] {
   // Check if the input is an object and not null
   if (typeof obj === 'object' && obj !== null) {
@@ -149,7 +149,7 @@ export function convertSchemas(
     })
   );
 
-  // to handle if there are any deferred schemas generated because of LazyZod
+  // to handle if there are any deferred schemas generated because of ZodLazy
   return processDeferredSchemas(schemas);
 }
 
