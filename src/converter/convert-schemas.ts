@@ -167,6 +167,7 @@ function createModelOrRef(
       kind: 'ref',
       ref: {
         ...ref,
+        ...convertSchema(schema, exportedSchemas),
         ...schemaToMeta(schema, implicitOptional),
       },
     };
